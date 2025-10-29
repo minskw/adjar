@@ -2,35 +2,26 @@
 <html lang="id">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Flipbook PDF Viewer (GitHub Pages)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title></title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    body{margin:0;background:#f3f3f3;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}
-    h1{margin-bottom:1rem;color:#111;text-align:center}
-    #book{position:relative;width:90vw;max-width:900px;height:80vh;perspective:2000px;}
-    .page{position:absolute;top:0;left:0;width:100%;height:100%;background:white;transform-origin:left center;transition:transform 0.8s cubic-bezier(.4,.2,.3,1);box-shadow:0 8px 25px rgba(0,0,0,.2);overflow:hidden;border-radius:10px;}
+    html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden;touch-action:pan-y;}
+    #book{position:fixed;top:0;left:0;width:100%;height:100%;perspective:2000px;overflow:hidden;}
+    .page{position:absolute;top:0;left:0;width:100%;height:100%;background:#fff;transform-origin:left center;transition:transform 0.6s cubic-bezier(.4,.2,.3,1);box-shadow:0 4px 20px rgba(0,0,0,.3);overflow:hidden;cursor:pointer;}
+    .page:hover{transform:rotateY(-10deg);}
     .page.flipped{transform:rotateY(-180deg);z-index:0;}
     canvas{width:100%;height:100%;object-fit:contain;}
-    .controls{margin-top:15px;display:flex;gap:10px;}
-    button{padding:8px 16px;border:none;border-radius:6px;background:#111827;color:#fff;cursor:pointer}
-    button:disabled{background:#9ca3af;cursor:not-allowed}
   </style>
 </head>
 <body>
-  <h1>Flipbook PDF Viewer</h1>
   <div id="book"></div>
-  <div class="controls">
-    <button id="prev">◀ Sebelumnya</button>
-    <button id="next">Berikut ▶</button>
-  </div>
 
   <script>
     const pdfUrl = 'https://minskw.github.io/flipbook/taskhir.pdf';
     const book = document.getElementById('book');
-    const prevBtn = document.getElementById('prev');
-    const nextBtn = document.getElementById('next');
     let pdfDoc=null,currentPage=1,totalPages=0,pages=[];
+    let touchStartX=0,touchEndX=0;
 
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
@@ -39,7 +30,7 @@
       pdfDoc=loading;totalPages=pdfDoc.numPages;
       for(let i=1;i<=totalPages;i++){
         const page=await pdfDoc.getPage(i);
-        const viewport=page.getViewport({scale:1.5});
+        const viewport=page.getViewport({scale:1});
         const canvas=document.createElement('canvas');
         const ctx=canvas.getContext('2d');
         canvas.width=viewport.width;canvas.height=viewport.height;
@@ -48,32 +39,44 @@
         pageDiv.className='page';
         pageDiv.style.zIndex=totalPages-i;
         pageDiv.appendChild(canvas);
+        pageDiv.addEventListener('click',()=>{
+          pageDiv.classList.toggle('flipped');
+        });
         book.appendChild(pageDiv);
         pages.push(pageDiv);
       }
-      updateButtons();
     }
 
-    function updateButtons(){
-      prevBtn.disabled=currentPage===1;
-      nextBtn.disabled=currentPage>totalPages;
-    }
-
-    nextBtn.addEventListener('click',()=>{
+    function nextPage(){
       if(currentPage<=totalPages){
         pages[currentPage-1].classList.add('flipped');
         currentPage++;
-        updateButtons();
       }
-    });
+    }
 
-    prevBtn.addEventListener('click',()=>{
+    function prevPage(){
       if(currentPage>1){
         currentPage--;
         pages[currentPage-1].classList.remove('flipped');
-        updateButtons();
       }
+    }
+
+    // Swipe detection for mobile
+    book.addEventListener('touchstart',e=>{
+      touchStartX = e.changedTouches[0].screenX;
     });
+
+    book.addEventListener('touchend',e=>{
+      touchEndX = e.changedTouches[0].screenX;
+      handleSwipe();
+    });
+
+    function handleSwipe(){
+      const diff = touchEndX - touchStartX;
+      if(Math.abs(diff) < 50) return;
+      if(diff < 0) nextPage();
+      else prevPage();
+    }
 
     loadPDF();
   </script>
