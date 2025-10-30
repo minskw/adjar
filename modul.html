@@ -110,6 +110,7 @@
     <button id="shareBtn" data-tooltip="Bagikan"><i data-lucide="share-2"></i></button>
     <button id="downloadBtn" data-tooltip="Unduh PDF"><i data-lucide="download"></i></button>
     <button id="printBtn" data-tooltip="Cetak"><i data-lucide="printer"></i></button>
+    <button id="clearCache" data-tooltip="Hapus Cache"><i data-lucide="trash-2"></i></button>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.min.js"></script>
@@ -119,12 +120,12 @@
     lucide.createIcons();
 
     (async function() {
-      const PDF_URL = 'https://minskw.github.io/adjar/modul.pdf';
+      const PDF_URL = 'https://archive.org/download/cp-atp/modul.pdf';
 
       if (window.pdfjsLib) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.worker.min.js';
       } else {
-        console.error('pdf.js gagal dimuat. Periksa koneksi atau CDN.');
+        console.error('pdf.js gagal dimuat.');
         return;
       }
 
@@ -134,7 +135,7 @@
           (function poll() {
             if (window.St && typeof window.St.PageFlip === 'function') return resolve(window.St.PageFlip);
             if (window.PageFlip && typeof window.PageFlip === 'function') return resolve(window.PageFlip);
-            if (Date.now() - start > timeout) return reject(new Error('page-flip library tidak tersedia (timeout)'));
+            if (Date.now() - start > timeout) return reject(new Error('page-flip tidak tersedia'));
             setTimeout(poll, 100);
           })();
         });
@@ -153,31 +154,49 @@
       let zoomLevel = 1;
       let fitHeightMode = true;
 
-      async function renderPageToDataURL(pdfPage, targetHeight) {
-        const viewport0 = pdfPage.getViewport({ scale: 1 });
-        let scale = targetHeight ? targetHeight / viewport0.height : 1;
-        scale = Math.min(Math.max(scale, 0.8), 2.0);
-        const viewport = pdfPage.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        const ctx = canvas.getContext('2d');
-        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
-        return canvas.toDataURL('image/jpeg', 0.9);
-      }
-
       async function renderPdfToImages(url, targetHeight) {
+        const cacheKey = `flipbookCache_${url}`;
+        const cached = localStorage.getItem(cacheKey);
+
+        if (cached) {
+          console.log('Memuat halaman dari cache localStorage...');
+          try {
+            return JSON.parse(cached);
+          } catch {
+            localStorage.removeItem(cacheKey);
+          }
+        }
+
         const loadingTask = pdfjsLib.getDocument({ url, withCredentials: false });
         const pdf = await loadingTask.promise;
         const total = pdf.numPages;
-
         const images = [];
+        const pixelRatio = window.devicePixelRatio || 1;
+
         for (let i = 1; i <= total; i++) {
           const page = await pdf.getPage(i);
-          const dataUrl = await renderPageToDataURL(page, targetHeight);
+          const viewport0 = page.getViewport({ scale: 1 });
+          const scale = (targetHeight / viewport0.height) * pixelRatio;
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.width = Math.floor(viewport.width);
+          canvas.height = Math.floor(viewport.height);
+
+          ctx.scale(pixelRatio, pixelRatio);
+          await page.render({ canvasContext: ctx, viewport }).promise;
+
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
           images.push(dataUrl);
-          await new Promise(r => setTimeout(r, 10));
         }
+
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(images));
+          console.log('Halaman tersimpan ke cache localStorage.');
+        } catch (e) {
+          console.warn('Gagal menyimpan cache:', e);
+        }
+
         return images;
       }
 
@@ -188,9 +207,7 @@
         const baseHeight = fitHeight;
         const baseWidth = baseHeight * 0.707;
 
-        if (pageFlip) {
-          pageFlip.destroy();
-        }
+        if (pageFlip) pageFlip.destroy();
 
         pageFlip = new PageFlipClass(flipContainer, {
           width: Math.floor(baseWidth),
@@ -204,7 +221,6 @@
           maxHeight: 3000,
           maxShadowOpacity: 0.6,
           mobileScrollSupport: true,
-          useMouseEvents: true,
           flippingTime: 700,
           showPageCorners: true,
           swipeDistance: 30,
@@ -216,43 +232,33 @@
 
       document.getElementById('prev').addEventListener('click', () => pageFlip.flipPrev());
       document.getElementById('next').addEventListener('click', () => pageFlip.flipNext());
-
       document.getElementById('zoomIn').addEventListener('click', () => {
         zoomLevel = Math.min(zoomLevel + 0.1, 2);
         flipContainer.style.transform = `scale(${zoomLevel})`;
-        flipContainer.style.transformOrigin = 'center center';
       });
-
       document.getElementById('zoomOut').addEventListener('click', () => {
         zoomLevel = Math.max(zoomLevel - 0.1, 0.8);
         flipContainer.style.transform = `scale(${zoomLevel})`;
-        flipContainer.style.transformOrigin = 'center center';
       });
-
       document.getElementById('fitHeightToggle').addEventListener('click', async () => {
         fitHeightMode = !fitHeightMode;
         await initFlipbook();
       });
-
       document.getElementById('shareBtn').addEventListener('click', async () => {
         if (navigator.share) {
           try {
             await navigator.share({ title: 'Modul Ajar', text: 'Lihat Flipbook Modul Ajar ini!', url: PDF_URL });
-          } catch (e) {
-            console.warn('Berbagi dibatalkan');
-          }
+          } catch {}
         } else {
           alert('Fitur berbagi tidak didukung di browser ini.');
         }
       });
-
       document.getElementById('downloadBtn').addEventListener('click', () => {
         const a = document.createElement('a');
         a.href = PDF_URL;
         a.download = 'Modul_Ajar.pdf';
         a.click();
       });
-
       document.getElementById('printBtn').addEventListener('click', () => {
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
@@ -263,9 +269,12 @@
           iframe.contentWindow.print();
         };
       });
+      document.getElementById('clearCache').addEventListener('click', () => {
+        localStorage.clear();
+        alert('Cache lokal telah dihapus.');
+      });
 
       await initFlipbook();
-
       window.addEventListener('resize', () => {
         try { pageFlip.update(); } catch (e) { console.warn(e); }
       });
