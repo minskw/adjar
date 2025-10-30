@@ -27,6 +27,12 @@
       align-items: center;
       justify-content: center;
       transition: transform 0.3s ease;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+
+    #flipbook.visible {
+      opacity: 1;
     }
 
     #flipbook canvas {
@@ -96,6 +102,38 @@
     #controlPanel button:hover::after {
       opacity: 1;
     }
+
+    /* 🔄 Loading Screen */
+    #loadingScreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #f8fafc;
+      font-size: 16px;
+      letter-spacing: 0.5px;
+      z-index: 10000;
+    }
+
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 5px solid rgba(255,255,255,0.2);
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -113,6 +151,11 @@
     <button id="clearCache" data-tooltip="Hapus Cache"><i data-lucide="trash-2"></i></button>
   </div>
 
+  <div id="loadingScreen">
+    <div class="spinner"></div>
+    <div>Memuat halaman flipbook...</div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.min.js"></script>
 
@@ -120,20 +163,18 @@
     lucide.createIcons();
 
     (async function() {
-      const PDF_URL = 'https://archive.org/download/cp-atp/modul.pdf';
+      const PDF_URL = 'https://minskw.github.io/adjar/modul.pdf';
+      const loadingScreen = document.getElementById('loadingScreen');
+      const flipContainer = document.getElementById('flipbook');
 
       if (window.pdfjsLib) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.worker.min.js';
-      } else {
-        console.error('pdf.js gagal dimuat.');
-        return;
       }
 
       function waitForPageFlip(timeout = 5000) {
         return new Promise((resolve, reject) => {
           const start = Date.now();
           (function poll() {
-            if (window.St && typeof window.St.PageFlip === 'function') return resolve(window.St.PageFlip);
             if (window.PageFlip && typeof window.PageFlip === 'function') return resolve(window.PageFlip);
             if (Date.now() - start > timeout) return reject(new Error('page-flip tidak tersedia'));
             setTimeout(poll, 100);
@@ -142,14 +183,9 @@
       }
 
       let PageFlipClass;
-      try {
-        PageFlipClass = await waitForPageFlip(8000);
-      } catch (err) {
-        console.error('Gagal memuat page-flip.', err);
-        return;
-      }
+      try { PageFlipClass = await waitForPageFlip(8000); }
+      catch (err) { console.error('Gagal memuat page-flip.', err); return; }
 
-      const flipContainer = document.getElementById('flipbook');
       let pageFlip = null;
       let zoomLevel = 1;
       let fitHeightMode = true;
@@ -157,7 +193,6 @@
       async function renderPdfToImages(url, targetHeight) {
         const cacheKey = `flipbookCache_${url}`;
         const cached = localStorage.getItem(cacheKey);
-
         if (cached) {
           console.log('Memuat halaman dari cache localStorage...');
           try {
@@ -182,12 +217,9 @@
           const ctx = canvas.getContext('2d');
           canvas.width = Math.floor(viewport.width);
           canvas.height = Math.floor(viewport.height);
-
           ctx.scale(pixelRatio, pixelRatio);
           await page.render({ canvasContext: ctx, viewport }).promise;
-
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-          images.push(dataUrl);
+          images.push(canvas.toDataURL('image/jpeg', 0.92));
         }
 
         try {
@@ -201,6 +233,9 @@
       }
 
       async function initFlipbook() {
+        loadingScreen.style.display = 'flex';
+        flipContainer.classList.remove('visible');
+
         const fitHeight = fitHeightMode ? Math.floor(window.innerHeight * 0.95) : Math.floor(window.innerWidth / 1.4);
         const images = await renderPdfToImages(PDF_URL, fitHeight);
 
@@ -228,8 +263,15 @@
 
         pageFlip.loadFromImages(images);
         pageFlip.turnToPage(0);
+
+        // ✅ tampilkan flipbook setelah semua halaman dimuat
+        setTimeout(() => {
+          loadingScreen.style.display = 'none';
+          flipContainer.classList.add('visible');
+        }, 600);
       }
 
+      // Tombol navigasi
       document.getElementById('prev').addEventListener('click', () => pageFlip.flipPrev());
       document.getElementById('next').addEventListener('click', () => pageFlip.flipNext());
       document.getElementById('zoomIn').addEventListener('click', () => {
@@ -249,9 +291,7 @@
           try {
             await navigator.share({ title: 'Modul Ajar', text: 'Lihat Flipbook Modul Ajar ini!', url: PDF_URL });
           } catch {}
-        } else {
-          alert('Fitur berbagi tidak didukung di browser ini.');
-        }
+        } else alert('Fitur berbagi tidak didukung di browser ini.');
       });
       document.getElementById('downloadBtn').addEventListener('click', () => {
         const a = document.createElement('a');
